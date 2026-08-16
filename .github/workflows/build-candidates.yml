@@ -1,0 +1,175 @@
+name: Build candidate images
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 21 * * *"
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: cloud-gateway-images-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: caddy
+            dockerfile: Dockerfile.caddy
+            image_env: CADDY_IMAGE_NAME
+            cache_scope: cloud-gateway-caddy
+          - component: derper
+            dockerfile: Dockerfile.derper
+            image_env: DERPER_IMAGE_NAME
+            cache_scope: cloud-gateway-derper
+    steps:
+      - name: Check out pipeline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run contract tests
+        run: tests/test-contract.sh
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Resolve releases and immutable build inputs
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPONENT: ${{ matrix.component }}
+          IMAGE_ENV: ${{ matrix.image_env }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source pipeline.env
+          latest_release() {
+            local repository=$1 tag
+            tag=$(gh api "repos/$repository/releases/latest" --jq .tag_name)
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "unexpected release tag for $repository: $tag" >&2
+              exit 1
+            }
+            printf '%s\n' "$tag"
+          }
+          require_minimum() {
+            local actual=${1#v} minimum=$2 name=$3 first
+            first=$(printf '%s\n%s\n' "$minimum" "$actual" | sort -V | head -n1)
+            [ "$first" = "$minimum" ] || {
+              echo "$name $actual is below minimum $minimum" >&2
+              exit 1
+            }
+          }
+          caddy_version=$(latest_release "$CADDY_REPOSITORY")
+          tailscale_version=$(latest_release "$TAILSCALE_REPOSITORY")
+          require_minimum "$caddy_version" "$CADDY_MIN_VERSION" Caddy
+          require_minimum "$tailscale_version" "$TAILSCALE_MIN_VERSION" Tailscale
+          caddy_l4_version=$(gh api "repos/$CADDY_L4_REPOSITORY/commits/HEAD" --jq .sha)
+          [[ "$caddy_l4_version" =~ ^[0-9a-f]{40}$ ]]
+          image_name=${!IMAGE_ENV}
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          image="ghcr.io/$owner/$image_name"
+          key=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+            "$PIPELINE_EPOCH" "$COMPONENT" "$caddy_version" \
+            "$tailscale_version" "$caddy_l4_version" \
+            "$CADDY_ALIDNS_VERSION/$CADDY_CLOUDFLARE_VERSION" "$GITHUB_SHA" |
+            sha256sum | awk '{print $1}')
+          candidate_tag="candidate-$PIPELINE_EPOCH-$key"
+          {
+            printf 'image=%s\n' "$image"
+            printf 'candidate=%s:%s\n' "$image" "$candidate_tag"
+            printf 'candidate_tag=%s\n' "$candidate_tag"
+            printf 'caddy_version=%s\n' "${caddy_version#v}"
+            printf 'tailscale_version=%s\n' "$tailscale_version"
+            printf 'caddy_l4_version=%s\n' "$caddy_l4_version"
+          } >> "$GITHUB_OUTPUT"
+          {
+            printf 'Component: `%s`\n\n' "$COMPONENT"
+            printf 'Candidate: `%s:%s`\n\n' "$image" "$candidate_tag"
+            printf 'Caddy: `%s`; Tailscale: `%s`; caddy-l4: `%s`\n' \
+              "$caddy_version" "$tailscale_version" "$caddy_l4_version"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check immutable candidate
+        id: existing
+        if: github.event_name != 'pull_request'
+        env:
+          CANDIDATE: ${{ steps.meta.outputs.candidate }}
+        run: |
+          if docker buildx imagetools inspect "$CANDIDATE" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build test target
+        if: github.event_name == 'pull_request' || steps.existing.outputs.exists != 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: test
+          pull: true
+          push: false
+          platforms: linux/amd64
+          build-args: |
+            CADDY_VERSION=${{ steps.meta.outputs.caddy_version }}
+            CADDY_L4_VERSION=${{ steps.meta.outputs.caddy_l4_version }}
+            CADDY_ALIDNS_VERSION=v1.0.29
+            CADDY_CLOUDFLARE_VERSION=v0.2.4
+            TAILSCALE_VERSION=${{ steps.meta.outputs.tailscale_version }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,scope=${{ matrix.cache_scope }},mode=max
+
+      - name: Publish runtime candidate
+        id: publish
+        if: github.event_name != 'pull_request' && steps.existing.outputs.exists != 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: runtime
+          pull: true
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.candidate }}
+          build-args: |
+            CADDY_VERSION=${{ steps.meta.outputs.caddy_version }}
+            CADDY_L4_VERSION=${{ steps.meta.outputs.caddy_l4_version }}
+            CADDY_ALIDNS_VERSION=v1.0.29
+            CADDY_CLOUDFLARE_VERSION=v0.2.4
+            TAILSCALE_VERSION=${{ steps.meta.outputs.tailscale_version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.jmsu.cloud-gateway.component=${{ matrix.component }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,scope=${{ matrix.cache_scope }},mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Attest image
+        if: github.event_name != 'pull_request' && steps.existing.outputs.exists != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true

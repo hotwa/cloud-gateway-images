@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily promoted cloud-gateway image update
+
+[Timer]
+OnCalendar=*-*-* 05:40:00 Asia/Shanghai
+RandomizedDelaySec=20m
+Persistent=true
+Unit=cloud-gateway-image-update.service
+
+[Install]
+WantedBy=timers.target

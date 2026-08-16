@@ -1,0 +1,13 @@
+[Unit]
+Description=Deploy promoted cloud-gateway GHCR images with rollback
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/cloud-gateway-image-update.env
+ExecStart=/usr/local/libexec/cloud-gateway-images/check-stable-and-deploy.sh
+TimeoutStartSec=20min
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,24 @@
+ARG CADDY_VERSION=2.11.4
+
+FROM caddy:${CADDY_VERSION}-builder AS builder
+ARG CADDY_L4_VERSION
+ARG CADDY_ALIDNS_VERSION=v1.0.29
+ARG CADDY_CLOUDFLARE_VERSION=v0.2.4
+RUN test -n "${CADDY_L4_VERSION}" && \
+    xcaddy build "v${CADDY_VERSION}" \
+      --with "github.com/caddy-dns/alidns@${CADDY_ALIDNS_VERSION}" \
+      --with "github.com/caddy-dns/cloudflare@${CADDY_CLOUDFLARE_VERSION}" \
+      --with "github.com/mholt/caddy-l4@${CADDY_L4_VERSION}"
+
+FROM caddy:${CADDY_VERSION}-alpine AS runtime
+RUN apk add --no-cache bind-tools curl iproute2 jq netcat-openbsd tzdata
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+USER caddy
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD caddy version >/dev/null
+
+FROM runtime AS test
+USER root
+RUN caddy version && \
+    caddy list-modules | grep -q '^dns.providers.alidns$' && \
+    caddy list-modules | grep -q '^dns.providers.cloudflare$' && \
+    caddy list-modules | grep -q '^layer4'

@@ -1,0 +1,18 @@
+FROM golang:1.26-alpine AS builder
+ARG TAILSCALE_VERSION
+RUN test -n "${TAILSCALE_VERSION}" && apk add --no-cache ca-certificates git && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+      go install -trimpath -ldflags='-s -w' \
+      "tailscale.com/cmd/derper@${TAILSCALE_VERSION}"
+
+FROM alpine:3.22 AS runtime
+RUN apk add --no-cache ca-certificates curl jq tzdata && \
+    adduser -D -u 10001 derper && \
+    install -d -o derper -g derper /app /app/certs
+COPY --from=builder /go/bin/derper /app/derper
+USER derper
+ENTRYPOINT ["/app/derper"]
+
+FROM runtime AS test
+USER root
+RUN /app/derper --help >/dev/null
