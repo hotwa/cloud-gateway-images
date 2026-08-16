@@ -32,7 +32,9 @@ caddy_digest=$old_caddy
 derper_digest=$old_derper
 if [ "$component" = caddy ]; then caddy_digest=$new_digest; else derper_digest=$new_digest; fi
 [[ "$caddy_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'caddy state is not initialized' >&2; exit 1; }
-[[ "$derper_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'derper state is not initialized' >&2; exit 1; }
+if [ "$component" = derper ]; then
+  [[ "$derper_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'derper state is not initialized' >&2; exit 1; }
+fi
 
 rollback() {
   rc=$?
@@ -80,9 +82,13 @@ services:
     image: $CADDY_IMAGE@$caddy_digest
   caddy-l7:
     image: $CADDY_IMAGE@$caddy_digest
+EOF
+if [[ "$derper_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  cat >>"$candidate" <<EOF
   derper:
     image: $DERPER_IMAGE@$derper_digest
 EOF
+fi
 cd "$STACK_DIR"
 docker compose -f docker-compose.yml -f "$candidate" config >/dev/null
 mv "$candidate" "$OVERRIDE_FILE"

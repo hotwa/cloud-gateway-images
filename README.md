@@ -36,7 +36,8 @@ repository and require migration-note review plus component-specific backups.
 ## Host installation
 
 Install the scripts and units from this repository as root, create initial
-`caddy.digest` and `derper.digest` state files from approved stable manifests,
+`caddy.digest` and, once DERPER's new `-c` configuration contract is validated,
+`derper.digest` state files from approved stable manifests,
 and create `/opt/cloud-gateway/docker-compose.override.yml` with the same exact
 digests. Validate before enabling the timer:
 
@@ -45,6 +46,12 @@ docker compose -C /opt/cloud-gateway config
 systemctl start cloud-gateway-image-update.service
 systemctl enable --now cloud-gateway-image-update.timer
 ```
+
+`MANAGE_DERPER=0` is the safe default. Tailscale 1.102.2's DERPER requires a
+new `-c <config path>` contract, while the current production Compose uses the
+legacy flags. The workflow may build DERPER candidates, but the host must not
+deploy them automatically until a reviewed config and rollback test pass; set
+`MANAGE_DERPER=1` only after that migration.
 
 Do not put GHCR tokens in the timer: the packages are public. Production `.env`,
 certificates, Tailnet state and cloud credentials stay only on the host.
