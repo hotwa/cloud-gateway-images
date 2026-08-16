@@ -106,7 +106,10 @@ for attempt in $(seq 1 30); do
 done
 
 for target in $targets; do
-  docker logs --tail 80 "$target" 2>&1 | grep -Eiq 'panic|fatal|error: loading|adapt.*error' && false || true
+  if docker logs --tail 80 "$target" 2>&1 | grep -Eiq 'panic|fatal|error: loading|adapt.*error'; then
+    echo "fatal startup log detected in ${target}" >&2
+    false
+  fi
 done
 
 probe_non_5xx() {
