@@ -119,11 +119,22 @@ probe_non_5xx() {
   [[ "$code" =~ ^[1-4][0-9][0-9]$ ]]
 }
 
+wait_probe_non_5xx() {
+  local url=$1 attempt
+  for attempt in $(seq 1 120); do
+    if probe_non_5xx "$url"; then
+      return 0
+    fi
+    [ "$attempt" -lt 120 ] || return 1
+    sleep 2
+  done
+}
+
 if [ "$component" = caddy ]; then
-  probe_non_5xx https://ci.jmsu.top/
-  probe_non_5xx https://wg.jmsu.top/
+  wait_probe_non_5xx https://ci.jmsu.top/
+  wait_probe_non_5xx https://wg.jmsu.top/
 else
-  probe_non_5xx https://derper.jmsu.top/derp/probe
+  wait_probe_non_5xx https://derper.jmsu.top/derp/probe
 fi
 
 printf '%s\n' "$caddy_digest" >"$STATE_DIR/caddy.digest"
