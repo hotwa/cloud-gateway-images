@@ -14,12 +14,11 @@ RUN test -n "${CADDY_L4_VERSION}" && \
 FROM caddy:${CADDY_RELEASE}-alpine AS runtime
 RUN apk add --no-cache bind-tools curl iproute2 jq netcat-openbsd tzdata
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
-USER caddy
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD caddy version >/dev/null
 
 FROM runtime AS test
-USER root
-RUN caddy version && \
+RUN test "$(id -u)" -eq 0 && \
+    caddy version && \
     caddy list-modules | grep -q '^dns.providers.alidns$' && \
     caddy list-modules | grep -q '^dns.providers.cloudflare$' && \
     caddy list-modules | grep -q '^layer4'
