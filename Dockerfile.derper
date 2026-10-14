@@ -1,4 +1,7 @@
 FROM golang:1.26-alpine AS builder
+# GitHub runners repeatedly hit HTTP/2 INTERNAL_ERROR while downloading Go modules.
+# This affects build-time downloads only; TLS and module checksums remain enabled.
+ENV GODEBUG=http2client=0
 ARG TAILSCALE_VERSION
 # Alpine disables automatic toolchain selection by default. Follow the pinned
 # Tailscale module's minimum Go version when it exceeds the bundled compiler.

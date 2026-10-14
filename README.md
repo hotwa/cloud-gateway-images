@@ -19,6 +19,10 @@ advanced by the manual promotion workflow protected by the
 The DERP builder enables Go automatic toolchain selection so the pinned Tailscale
 release can select its required compiler even when the Alpine base bundles an older Go.
 
+Go module downloads in both builders use HTTPS over HTTP/1 to avoid the HTTP/2
+stream errors observed on GitHub runners. TLS and module checksum verification remain
+enabled, and this build-only setting is not copied into the runtime images.
+
 ## Update flow
 
 1. `Build candidate images` runs daily and on repository changes.

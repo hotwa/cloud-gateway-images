@@ -1,6 +1,9 @@
 ARG CADDY_RELEASE=2.11.4
 
 FROM caddy:${CADDY_RELEASE}-builder AS builder
+# GitHub runners repeatedly hit HTTP/2 INTERNAL_ERROR while downloading Go modules.
+# This affects build-time downloads only; TLS and module checksums remain enabled.
+ENV GODEBUG=http2client=0
 ARG CADDY_RELEASE
 ARG CADDY_L4_VERSION
 ARG CADDY_ALIDNS_VERSION=v1.0.29

@@ -13,3 +13,12 @@ grep -q '^ENV GOTOOLCHAIN=auto$' Dockerfile.derper
 grep -q 'environment: production-promotion' .github/workflows/promote-stable.yml
 grep -q 'docker compose config' scripts/deploy-digest.sh
 grep -q 'rollback' scripts/deploy-digest.sh
+
+# Transport workaround belongs only to build stages, never to runtime images.
+for dockerfile in Dockerfile.caddy Dockerfile.derper; do
+  sed -n '1,/^FROM .* AS runtime$/p' "$dockerfile" | grep -q '^ENV GODEBUG=http2client=0$'
+  if sed -n '/^FROM .* AS runtime$/,$p' "$dockerfile" | grep -q '^ENV GODEBUG='; then
+    echo "build transport setting leaked into runtime: $dockerfile" >&2
+    exit 1
+  fi
+done
