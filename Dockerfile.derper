@@ -1,5 +1,8 @@
 FROM golang:1.26-alpine AS builder
 ARG TAILSCALE_VERSION
+# Alpine disables automatic toolchain selection by default. Follow the pinned
+# Tailscale module's minimum Go version when it exceeds the bundled compiler.
+ENV GOTOOLCHAIN=auto
 RUN test -n "${TAILSCALE_VERSION}" && apk add --no-cache ca-certificates git && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
       go install -trimpath -ldflags='-s -w' \

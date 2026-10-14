@@ -16,6 +16,9 @@ immutable `candidate-v1-<sha256>` tag. The mutable `stable` tag can only be
 advanced by the manual promotion workflow protected by the
 `production-promotion` GitHub Environment.
 
+The DERP builder enables Go automatic toolchain selection so the pinned Tailscale
+release can select its required compiler even when the Alpine base bundles an older Go.
+
 ## Update flow
 
 1. `Build candidate images` runs daily and on repository changes.
